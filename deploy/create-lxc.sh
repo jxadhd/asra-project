@@ -40,14 +40,17 @@ if pct status "$CTID" >/dev/null 2>&1; then
   echo "Container $CTID already exists. Choose another CTID." >&2; exit 1
 fi
 
-echo "Finding the newest Debian template"
+ARCH=$(dpkg --print-architecture)
+echo "Finding the newest Debian template for $ARCH"
 pveam update >/dev/null
 TEMPLATE=""
 for release in 13 12; do
-  TEMPLATE=$(pveam available --section system | awk -v r="debian-$release-standard" '$2 ~ r {print $2}' | sort -V | tail -n 1)
+  TEMPLATE=$(pveam available --section system \
+    | awk -v r="^debian-$release-standard_.*_$ARCH\\.tar" '$2 ~ r {print $2}' \
+    | sort -V | tail -n 1)
   [ -n "$TEMPLATE" ] && break
 done
-[ -n "$TEMPLATE" ] || { echo "No Debian template found in pveam." >&2; exit 1; }
+[ -n "$TEMPLATE" ] || { echo "No Debian template for $ARCH found in pveam." >&2; exit 1; }
 if ! pveam list "$TEMPLATE_STORAGE" | grep -q "$TEMPLATE"; then
   echo "Downloading $TEMPLATE"
   pveam download "$TEMPLATE_STORAGE" "$TEMPLATE"
@@ -69,6 +72,11 @@ pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" \
   --net0 "$NET" \
   --onboot 1 \
   --start 1
+
+if [ "$(pct status "$CTID" | awk '{print $2}')" != "running" ]; then
+  echo "Container $CTID was created but did not start. See: pct start $CTID --debug" >&2
+  exit 1
+fi
 
 echo "Waiting for the network"
 for _ in $(seq 1 60); do
