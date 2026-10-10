@@ -1,9 +1,12 @@
 #!/bin/sh
-# Organiser commands for the signature database. Runs as the asra user so the
-# database files keep the right owner. Usage: asra-admin --help
+# Organiser commands for the signature database. Run as root: the asra_admin
+# login in /etc/asra/admin.env is readable by root only, and the command itself
+# runs as "nobody". Usage: asra-admin --help
+[ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
+[ -r /etc/asra/admin.env ] || { echo "Missing /etc/asra/admin.env. See README.md." >&2; exit 1; }
 set -a
 # shellcheck disable=SC1091
-[ -r /etc/asra/asra.env ] && . /etc/asra/asra.env
+. /etc/asra/admin.env
 set +a
 cd /
-exec runuser -u asra -- /usr/bin/python3 /opt/asra/server/asra_admin.py "$@"
+exec runuser -u nobody -- /usr/bin/python3 /opt/asra/server/asra_admin.py "$@"

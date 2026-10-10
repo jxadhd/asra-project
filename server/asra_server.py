@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Signature API for The Asra Project petition site.
 
-Standard library only. Caddy serves the static site and forwards /api/* here.
+Python standard library plus psycopg2 (Debian: python3-psycopg2). Signatures
+live in Postgres; the web container keeps no data. Caddy serves the static
+site and forwards /api/* here.
 
   POST /api/sign    add a signature (JSON body)
   GET  /api/count   total signatures and counts by country
@@ -13,7 +15,6 @@ import hashlib
 import json
 import os
 import re
-import sqlite3
 import sys
 import threading
 import time
@@ -21,7 +22,12 @@ import unicodedata
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-DB_PATH = os.environ.get("ASRA_DB", "/var/lib/asra/signatures.db")
+import psycopg2
+import psycopg2.pool
+
+# libpq connection string for the asra_app role, e.g.
+# postgresql://asra_app:PASSWORD@192.168.50.35:5433/asra
+DATABASE_URL = os.environ.get("ASRA_DATABASE_URL", "")
 HOST = os.environ.get("ASRA_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ASRA_PORT", "8080"))
 # Signatures accepted per client address per hour. Generous, because a cell
@@ -52,34 +58,43 @@ UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW
 
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS signatures (
-    id          INTEGER PRIMARY KEY,
-    petition    TEXT NOT NULL,
-    name        TEXT NOT NULL,
-    town        TEXT NOT NULL,
-    country     TEXT NOT NULL,
-    email       TEXT,
-    updates     INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL,
-    dedupe_key  TEXT NOT NULL UNIQUE
-);
-CREATE INDEX IF NOT EXISTS signatures_country ON signatures (petition, country);
-"""
+class Database:
+    """A small thread-safe connection pool. Connections are opened lazily, so
+    the API starts (and reports itself unhealthy) while Postgres is down."""
 
+    def __init__(self, dsn, maxconn=8):
+        self.dsn = dsn
+        self.maxconn = maxconn
+        self.pool = None
+        self.lock = threading.Lock()
 
-def connect(path=None):
-    conn = sqlite3.connect(path or DB_PATH, timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=10000")
-    return conn
+    def _pool(self):
+        with self.lock:
+            if self.pool is None:
+                self.pool = psycopg2.pool.ThreadedConnectionPool(
+                    0, self.maxconn, self.dsn, connect_timeout=5, application_name="asra")
+            return self.pool
 
+    def run(self, fn):
+        """Call fn(cursor) in a transaction and return its result."""
+        pool = self._pool()
+        conn = pool.getconn()
+        broken = False
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    return fn(cur)
+        except psycopg2.OperationalError:
+            broken = True
+            raise
+        finally:
+            pool.putconn(conn, close=broken or conn.closed != 0)
 
-def init_db(path=None):
-    directory = os.path.dirname(os.path.abspath(path or DB_PATH))
-    os.makedirs(directory, exist_ok=True)
-    with connect(path) as conn:
-        conn.executescript(SCHEMA)
+    def close(self):
+        with self.lock:
+            if self.pool is not None:
+                self.pool.closeall()
+                self.pool = None
 
 
 def clean_text(value, limit):
@@ -116,7 +131,7 @@ def validate(payload):
         "town": town,
         "country": country,
         "email": email.lower() or None,
-        "updates": 1 if updates else 0,
+        "updates": updates,
     }, None
 
 
@@ -125,37 +140,38 @@ def dedupe_key(record):
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def add_signature(record, path=None):
+def add_signature(db, record):
     """Store a signature. A repeat of the same name, town and country is ignored."""
-    with connect(path) as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO signatures (petition, name, town, country, email, updates, created_at, dedupe_key)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                PETITION,
-                record["name"],
-                record["town"],
-                record["country"],
-                record["email"],
-                record["updates"],
-                datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                dedupe_key(record),
-            ),
+    def insert(cur):
+        cur.execute(
+            "INSERT INTO signatures (petition, name, town, country, email, updates, dedupe_key)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (PETITION, record["name"], record["town"], record["country"],
+             record["email"], record["updates"], dedupe_key(record)),
         )
+    db.run(insert)
 
 
-def counts(path=None):
-    with connect(path) as conn:
-        rows = conn.execute(
-            "SELECT country, COUNT(*) FROM signatures WHERE petition = ? GROUP BY country ORDER BY COUNT(*) DESC",
+def counts(db):
+    def query(cur):
+        cur.execute(
+            "SELECT country, count(*) FROM signatures WHERE petition = %s GROUP BY country ORDER BY count(*) DESC",
             (PETITION,),
-        ).fetchall()
-    by_country = {country: n for country, n in rows}
+        )
+        return cur.fetchall()
+    by_country = {country: n for country, n in db.run(query)}
     return {
         "total": sum(by_country.values()),
         "countries": by_country,
         "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+def database_ok(db):
+    try:
+        return db.run(lambda cur: cur.execute("SELECT 1") or True)
+    except psycopg2.Error:
+        return False
 
 
 class RateLimiter:
@@ -189,7 +205,7 @@ class RateLimiter:
 class Handler(BaseHTTPRequestHandler):
     server_version = "asra"
     sys_version = ""
-    db_path = None
+    db = None
     limiter = None
     count_cache = {"at": 0.0, "body": None}
     count_lock = threading.Lock()
@@ -218,14 +234,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_unavailable(self):
+        return self.send_json(503, {"error": "Signing is unavailable right now. Try again in a few minutes."})
+
     def do_GET(self):
         if self.path == "/api/health":
-            return self.send_json(200, {"ok": True})
+            ok = database_ok(self.db)
+            return self.send_json(200 if ok else 503, {"ok": ok, "database": ok})
         if self.path == "/api/count":
             with self.count_lock:
                 cache = self.count_cache
                 if cache["body"] is None or time.monotonic() - cache["at"] > COUNT_CACHE_SECONDS:
-                    cache["body"] = counts(self.db_path)
+                    try:
+                        cache["body"] = counts(self.db)
+                    except psycopg2.Error as e:
+                        sys.stderr.write("count failed: %s\n" % type(e).__name__)
+                        return self.send_unavailable()
                     cache["at"] = time.monotonic()
                 body = cache["body"]
             return self.send_json(200, body, cache=True)
@@ -258,7 +282,11 @@ class Handler(BaseHTTPRequestHandler):
         # busy stall don't lock people out.
         if not self.limiter.allow(self.client_address_for_limits()):
             return self.send_json(429, {"error": "Too many signatures from this connection. Try again in an hour."})
-        add_signature(record, self.db_path)
+        try:
+            add_signature(self.db, record)
+        except psycopg2.Error as e:
+            sys.stderr.write("sign failed: %s\n" % type(e).__name__)
+            return self.send_unavailable()
         with self.count_lock:
             self.count_cache["body"] = None
         # The same reply whether or not this person had already signed, so the
@@ -266,18 +294,22 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json(200, {"ok": True})
 
 
-def make_server(host=HOST, port=PORT, db_path=None, rate_limit=RATE_LIMIT):
-    init_db(db_path)
+def make_server(host=HOST, port=PORT, dsn=None, rate_limit=RATE_LIMIT):
+    db = Database(DATABASE_URL if dsn is None else dsn)
     handler = type("BoundHandler", (Handler,), {
-        "db_path": db_path,
+        "db": db,
         "limiter": RateLimiter(rate_limit),
         "count_cache": {"at": 0.0, "body": None},
         "count_lock": threading.Lock(),
     })
-    return ThreadingHTTPServer((host, port), handler)
+    server = ThreadingHTTPServer((host, port), handler)
+    server.db = db
+    return server
 
 
 def main():
+    if not DATABASE_URL:
+        sys.stderr.write("ASRA_DATABASE_URL is not set; signing will fail until it is.\n")
     server = make_server()
     sys.stderr.write("asra signature API listening on %s:%d\n" % (HOST, PORT))
     try:

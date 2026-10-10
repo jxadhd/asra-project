@@ -18,6 +18,7 @@
 #   TRUSTED_PROXY     passed to install.sh (default: none)
 #   CLIENT_IP_HEADER  passed to install.sh (default: none; Cloudflare: CF-Connecting-IP)
 #   REPO_URL          default: https://github.com/jxadhd/asra-project.git
+#   DB_ENV_FILE       database logins from deploy/postgres/setup.sh (default: /root/asra-db.env)
 set -euo pipefail
 
 command -v pct >/dev/null || { echo "Run this on a Proxmox VE host." >&2; exit 1; }
@@ -35,6 +36,10 @@ SITE_ADDRESS=${SITE_ADDRESS:-:80}
 TRUSTED_PROXY=${TRUSTED_PROXY:-}
 CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-}
 REPO_URL=${REPO_URL:-https://github.com/jxadhd/asra-project.git}
+DB_ENV_FILE=${DB_ENV_FILE:-/root/asra-db.env}
+
+[ -r "$DB_ENV_FILE" ] || {
+  echo "No database logins at $DB_ENV_FILE. Run deploy/postgres/setup.sh first (see README)." >&2; exit 1; }
 
 if pct status "$CTID" >/dev/null 2>&1; then
   echo "Container $CTID already exists. Choose another CTID." >&2; exit 1
@@ -89,6 +94,7 @@ pct exec "$CTID" -- getent hosts deb.debian.org >/dev/null || {
 echo "Installing the site"
 pct exec "$CTID" -- env DEBIAN_FRONTEND=noninteractive bash -c 'apt-get update -qq && apt-get install -y -qq git ca-certificates >/dev/null'
 pct exec "$CTID" -- git clone --quiet --depth 1 "$REPO_URL" /opt/asra
+pct push "$CTID" "$DB_ENV_FILE" /root/asra-db.env --perms 0600
 pct exec "$CTID" -- env SITE_ADDRESS="$SITE_ADDRESS" TRUSTED_PROXY="$TRUSTED_PROXY" CLIENT_IP_HEADER="$CLIENT_IP_HEADER" /opt/asra/deploy/install.sh
 
 ADDRESSES=$(pct exec "$CTID" -- hostname -I)

@@ -1,27 +1,73 @@
 import io
 import json
 import os
-import sqlite3
+import subprocess
 import sys
-import tempfile
 import threading
 import unittest
 import urllib.error
 import urllib.request
+import uuid
 from contextlib import redirect_stdout
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "server"))
+import psycopg2
+from psycopg2.extensions import make_dsn, parse_dsn
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+sys.path.insert(0, os.path.join(ROOT, "server"))
 import asra_admin  # noqa: E402
 import asra_server  # noqa: E402
+
+# A superuser connection string for a throwaway Postgres, e.g.
+# postgresql://postgres:postgres@localhost:5432/postgres
+SUPER_DSN = os.environ.get("ASRA_TEST_DSN", "")
+APP_PASSWORD = "app-test-password"
+ADMIN_PASSWORD = "admin-test-password"
+
+
+def setUpModule():
+    if not SUPER_DSN:
+        raise unittest.SkipTest("set ASRA_TEST_DSN to a superuser connection string to run these tests")
+
+
+class PostgresCase(unittest.TestCase):
+    """Creates a fresh database with deploy/postgres/setup.sql for each test."""
+
+    def setUp(self):
+        self.dbname = "asra_test_" + uuid.uuid4().hex[:8]
+        subprocess.run(
+            ["psql", SUPER_DSN, "-q", "-v", "ON_ERROR_STOP=1",
+             "-v", "dbname=" + self.dbname,
+             "-v", "app_password=" + APP_PASSWORD,
+             "-v", "admin_password=" + ADMIN_PASSWORD,
+             "-f", os.path.join(ROOT, "deploy", "postgres", "setup.sql")],
+            check=True, stdout=subprocess.DEVNULL,
+        )
+        base = parse_dsn(SUPER_DSN)
+        self.app_dsn = make_dsn(SUPER_DSN, dbname=self.dbname, user="asra_app", password=APP_PASSWORD)
+        self.admin_dsn = make_dsn(SUPER_DSN, dbname=self.dbname, user="asra_admin", password=ADMIN_PASSWORD)
+        self.super_db_dsn = make_dsn(SUPER_DSN, dbname=self.dbname, user=base.get("user"))
+
+    def tearDown(self):
+        conn = psycopg2.connect(SUPER_DSN)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute('DROP DATABASE "%s" WITH (FORCE)' % self.dbname)
+        conn.close()
+
+    def stored(self):
+        with psycopg2.connect(self.super_db_dsn) as conn, conn.cursor() as cur:
+            cur.execute("SELECT name, town, country, email, updates FROM signatures ORDER BY id")
+            return cur.fetchall()
+
 
 VALID = {"name": "Mere Tane", "town": "Christchurch", "country": "NZ", "consent": True}
 
 
-class ServerTest(unittest.TestCase):
+class ServerTest(PostgresCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.db = os.path.join(self.tmp.name, "sigs.db")
-        self.server = asra_server.make_server("127.0.0.1", 0, db_path=self.db, rate_limit=5)
+        super().setUp()
+        self.server = asra_server.make_server("127.0.0.1", 0, dsn=self.app_dsn, rate_limit=5)
         self.base = "http://127.0.0.1:%d" % self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -29,7 +75,8 @@ class ServerTest(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
-        self.tmp.cleanup()
+        self.server.db.close()
+        super().tearDown()
 
     def request(self, path, body=None, headers=None, raw=None):
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
@@ -43,12 +90,30 @@ class ServerTest(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
 
-    def stored(self):
-        with sqlite3.connect(self.db) as conn:
-            return conn.execute("SELECT name, town, country, email, updates FROM signatures").fetchall()
-
     def test_health(self):
-        self.assertEqual(self.request("/api/health"), (200, {"ok": True}))
+        self.assertEqual(self.request("/api/health"), (200, {"ok": True, "database": True}))
+
+    def test_database_down(self):
+        down = asra_server.make_server("127.0.0.1", 0, dsn="postgresql://asra_app@127.0.0.1:1/asra")
+        thread = threading.Thread(target=down.serve_forever, daemon=True)
+        thread.start()
+        base, self.base = self.base, "http://127.0.0.1:%d" % down.server_address[1]
+        try:
+            self.assertEqual(self.request("/api/health")[0], 503)
+            self.assertEqual(self.request("/api/sign", VALID)[0], 503)
+            self.assertEqual(self.request("/api/count")[0], 503)
+        finally:
+            self.base = base
+            down.shutdown()
+            down.server_close()
+
+    def test_app_login_cannot_read_names(self):
+        with psycopg2.connect(self.app_dsn) as conn, conn.cursor() as cur:
+            with self.assertRaises(psycopg2.errors.InsufficientPrivilege):
+                cur.execute("SELECT name FROM signatures")
+        with psycopg2.connect(self.app_dsn) as conn, conn.cursor() as cur:
+            with self.assertRaises(psycopg2.errors.InsufficientPrivilege):
+                cur.execute("DELETE FROM signatures")
 
     def test_sign_and_count(self):
         status, body = self.request("/api/sign", VALID)
@@ -88,9 +153,9 @@ class ServerTest(unittest.TestCase):
     def test_updates_need_an_email(self):
         self.request("/api/sign", dict(VALID, updates=True))
         self.request("/api/sign", dict(VALID, name="Sam", email="Sam@Example.org", updates=True))
-        rows = sorted(self.stored())
-        self.assertEqual(rows[0][3:], (None, 0))
-        self.assertEqual(rows[1][3:], ("sam@example.org", 1))
+        rows = self.stored()
+        self.assertEqual(rows[0][3:], (None, False))
+        self.assertEqual(rows[1][3:], ("sam@example.org", True))
 
     def test_honeypot_pretends_success(self):
         status, _ = self.request("/api/sign", dict(VALID, website="http://spam.example"))
@@ -118,21 +183,18 @@ class ServerTest(unittest.TestCase):
         self.assertNotIn("Mere", json.dumps(body))
 
 
-class AdminTest(unittest.TestCase):
+class AdminTest(PostgresCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.db = os.path.join(self.tmp.name, "sigs.db")
-        asra_server.init_db(self.db)
+        super().setUp()
+        db = asra_server.Database(self.app_dsn)
         record, _ = asra_server.validate(dict(VALID, email="m@example.org", updates=True))
-        asra_server.add_signature(record, self.db)
-
-    def tearDown(self):
-        self.tmp.cleanup()
+        asra_server.add_signature(db, record)
+        db.close()
 
     def run_admin(self, *args):
         out = io.StringIO()
         with redirect_stdout(out):
-            asra_admin.main(["--db", self.db, *args])
+            asra_admin.main(["--dsn", self.admin_dsn, *args])
         return out.getvalue()
 
     def test_export_hides_emails_unless_asked(self):
@@ -143,14 +205,18 @@ class AdminTest(unittest.TestCase):
 
     def test_find_and_delete(self):
         self.assertIn("Mere Tane", self.run_admin("find", "mere"))
+        self.assertIn("No matching", self.run_admin("find", "100%"))
         self.assertEqual(self.run_admin("delete", "1").strip(), "Deleted.")
         self.assertIn("Total  0", self.run_admin("count"))
 
-    def test_backup(self):
-        target = os.path.join(self.tmp.name, "copy.db")
-        self.run_admin("backup", target)
-        with sqlite3.connect(target) as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM signatures").fetchone()[0], 1)
+    def test_setup_is_safe_to_run_again(self):
+        subprocess.run(
+            ["psql", SUPER_DSN, "-q", "-v", "ON_ERROR_STOP=1", "-v", "dbname=" + self.dbname,
+             "-v", "app_password=" + APP_PASSWORD, "-v", "admin_password=" + ADMIN_PASSWORD,
+             "-f", os.path.join(ROOT, "deploy", "postgres", "setup.sql")],
+            check=True, stdout=subprocess.DEVNULL,
+        )
+        self.assertIn("Total  1", self.run_admin("count"))
 
 
 if __name__ == "__main__":

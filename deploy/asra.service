@@ -10,8 +10,6 @@ EnvironmentFile=/etc/asra/asra.env
 ExecStart=/usr/bin/python3 /opt/asra/server/asra_server.py
 Restart=on-failure
 RestartSec=2
-StateDirectory=asra
-StateDirectoryMode=0700
 UMask=0077
 
 # Sandboxing. Needs the container's "nesting" feature (deploy/create-lxc.sh sets it).

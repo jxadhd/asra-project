@@ -1,82 +1,69 @@
 #!/usr/bin/env python3
-"""Organiser commands for the signature database. Run on the server through the asra-admin wrapper, which runs it as the asra user.
+"""Organiser commands for the signature database. Run on the web server as root
+through the asra-admin wrapper, which loads the asra_admin login from
+/etc/asra/admin.env.
 
   asra-admin count                 totals by country
   asra-admin export > sigs.csv     name, town, country, date (no emails)
   asra-admin export --emails       adds email and the updates opt-in
-  asra-admin find "text"           search names and towns, to handle removal requests
+  asra-admin find "text"           search names, towns and emails, for removal requests
   asra-admin delete ID             remove one signature by its id
-  asra-admin backup [FILE]         consistent copy of the database
-                                   (default: /var/lib/asra/backups/asra-<time>.db)
+
+Back up the database on the Postgres server, for example with pg_dump.
 """
 import argparse
 import csv
 import os
-import sqlite3
 import sys
-import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import asra_server  # noqa: E402
+import psycopg2
 
 
-def cmd_count(conn, args):
-    rows = conn.execute(
-        "SELECT country, COUNT(*) FROM signatures GROUP BY country ORDER BY COUNT(*) DESC"
-    ).fetchall()
-    total = sum(n for _, n in rows)
+def cmd_count(cur, args):
+    cur.execute("SELECT country, count(*) FROM signatures GROUP BY country ORDER BY count(*) DESC, country")
+    rows = cur.fetchall()
     for country, n in rows:
         print(f"{country}  {n}")
-    print(f"Total  {total}")
+    print(f"Total  {sum(n for _, n in rows)}")
 
 
-def cmd_export(conn, args):
-    columns = ["id", "name", "town", "country", "created_at"]
+def cmd_export(cur, args):
+    columns = ["id", "petition", "name", "town", "country", "created_at"]
     if args.emails:
         columns += ["email", "updates"]
+    cur.execute(f"SELECT {', '.join(columns)} FROM signatures ORDER BY id")
     writer = csv.writer(sys.stdout)
     writer.writerow(columns)
-    for row in conn.execute(f"SELECT {', '.join(columns)} FROM signatures ORDER BY id"):
+    for row in cur:
         writer.writerow(row)
 
 
-def cmd_find(conn, args):
-    like = f"%{args.text}%"
-    rows = conn.execute(
+def cmd_find(cur, args):
+    like = "%" + args.text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    cur.execute(
         "SELECT id, name, town, country, created_at FROM signatures"
-        " WHERE name LIKE ? OR town LIKE ? OR email LIKE ? ORDER BY id",
+        " WHERE name ILIKE %s OR town ILIKE %s OR email ILIKE %s ORDER BY id",
         (like, like, like),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
     for row in rows:
         print("  ".join(str(v) for v in row))
     if not rows:
         print("No matching signatures.")
 
 
-def cmd_delete(conn, args):
-    cur = conn.execute("DELETE FROM signatures WHERE id = ?", (args.id,))
-    conn.commit()
+def cmd_delete(cur, args):
+    cur.execute("DELETE FROM signatures WHERE id = %s", (args.id,))
     print("Deleted." if cur.rowcount else "No signature with that id.")
 
 
-def cmd_backup(conn, args):
-    target = args.file
-    if not target:
-        folder = os.path.join(os.path.dirname(os.path.abspath(args.db)), "backups")
-        os.makedirs(folder, mode=0o700, exist_ok=True)
-        target = os.path.join(folder, time.strftime("asra-%Y%m%d-%H%M%S.db"))
-    dest = sqlite3.connect(target)
-    try:
-        conn.backup(dest)
-    finally:
-        dest.close()
-    os.chmod(target, 0o600)
-    print(f"Backed up to {target}")
+COMMANDS = {"count": cmd_count, "export": cmd_export, "find": cmd_find, "delete": cmd_delete}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="asra-admin", description="Manage Asra petition signatures.")
-    parser.add_argument("--db", default=asra_server.DB_PATH, help="database path")
+    parser.add_argument("--dsn", default=os.environ.get("ASRA_ADMIN_DATABASE_URL", ""),
+                        help="connection string for the asra_admin login (default: $ASRA_ADMIN_DATABASE_URL)")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("count", help="totals by country")
     export = sub.add_parser("export", help="CSV of signatures to standard output")
@@ -85,16 +72,15 @@ def main(argv=None):
     find.add_argument("text")
     delete = sub.add_parser("delete", help="remove one signature")
     delete.add_argument("id", type=int)
-    backup = sub.add_parser("backup", help="copy the database to a file")
-    backup.add_argument("file", nargs="?")
     args = parser.parse_args(argv)
 
-    if not os.path.exists(args.db):
-        parser.error(f"no database at {args.db}")
-    conn = sqlite3.connect(args.db)
+    if not args.dsn:
+        parser.error("no database login: set ASRA_ADMIN_DATABASE_URL (see /etc/asra/admin.env)")
+    conn = psycopg2.connect(args.dsn, connect_timeout=10, application_name="asra-admin")
     try:
-        {"count": cmd_count, "export": cmd_export, "find": cmd_find,
-         "delete": cmd_delete, "backup": cmd_backup}[args.command](conn, args)
+        with conn:
+            with conn.cursor() as cur:
+                COMMANDS[args.command](cur, args)
     finally:
         conn.close()
 
