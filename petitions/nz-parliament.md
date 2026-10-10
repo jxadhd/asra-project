@@ -7,17 +7,17 @@ The wording to enter on Parliament's "Start a petition" form
 
 **Petition of:** The Asra Project (choose "on behalf of this organisation")
 
-**Title** (54 of 80 characters)
+**Title** (72 of 80 characters)
 
-> Let the Red Cross in to see every Palestinian detainee
+> Uphold Israel's court order: let the Red Cross see Palestinian detainees
 
-**Request** (271 of 300 characters, must start "That the House of Representatives")
+**Request** (273 of 300 characters, must start "That the House of Representatives")
 
-> That the House of Representatives urge the Government to press Israel publicly, with partner countries, to obey its own Supreme Court and let the Red Cross, Red Crescent and other impartial humanitarian agencies visit every Palestinian detainee, regularly and in private.
+> That the House of Representatives urge the Government to call publicly, with partner countries, on Israel to obey its own Supreme Court and let the Red Cross, Red Crescent and other impartial humanitarian agencies visit every Palestinian detainee, regularly and in private.
 
-**Reason** (499 of 500 characters, optional)
+**Reason** (486 of 500 characters, optional)
 
-> The Red Cross has not been allowed to see a single Palestinian detainee since October 2023. Israel holds over 9,200 Palestinians, nearly half without charge or trial. In June 2026 Israel's own Supreme Court ruled the ban unlawful. Visits have still not resumed. Red Cross visits check how detainees are treated and carry word to their families, a basic protection under the Geneva Conventions, which New Zealand has ratified. New Zealand can lead this call with Australia, Canada, the UK and Norway.
+> For three years the Red Cross has been barred from every Palestinian detainee. Israel holds over 9,200 of them, more than 3,000 without charge or trial. In June 2026 Israel's own Supreme Court ruled the ban unlawful and ordered visits to resume. They still have not. Red Cross visits are a basic protection under the Geneva Conventions, which bind New Zealand. New Zealand already acts with Australia, Canada, the UK and Norway on Israel. It can lead again, and the House can ask it to.
 
 **Closing date:** 28 February 2027 (suggested; up to one year allowed, and the
 Petitions team can change it later).
@@ -36,8 +36,8 @@ Petitions team can change it later).
 
 ## Sources for every figure
 
-- 9,200+ held, nearly half (4,520) without charge or trial: [HaMoked, October 2026](https://hamoked.org/prisoners-charts.php)
-- Red Cross barred since October 2023, not one visit since; June 2026 ruling: [Al Jazeera, 4 June 2026](https://www.aljazeera.com/news/2026/6/4/israel-must-allow-icrc-to-visit-palestinians-in-prison-supreme-court-rules)
+- 9,200+ held, more than 3,000 (3,101) in administrative detention without charge or trial: [HaMoked, October 2026](https://hamoked.org/prisoners-charts.php)
+- Red Cross barred since October 2023; June 2026 ruling ordering visits to resume: [Al Jazeera, 4 June 2026](https://www.aljazeera.com/news/2026/6/4/israel-must-allow-icrc-to-visit-palestinians-in-prison-supreme-court-rules)
 - What visits do (check treatment, carry messages to families): [ICRC, What we do for detainees](https://www.icrc.org/en/document/what-we-do-detainees) and [ICRC FAQ on Palestinian detainees](https://www.icrc.org/en/article/FAQ-icrc-and-palestinian-detainees)
 - Visits not resumed: [Times of Israel, 28 September 2026](https://www.timesofisrael.com/high-court-gives-government-2-weeks-to-specify-terms-for-red-cross-visits-to-detainees/)
 - New Zealand acting with Australia, Canada, the UK and Norway: [MFAT](https://www.mfat.govt.nz/en/countries-and-regions/middle-east/israel-hamas-conflict)
