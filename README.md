@@ -21,7 +21,8 @@ petition.
 | `deploy/create-lxc.sh` | Creates a Debian container on a Proxmox VE host and installs everything. |
 | `deploy/install.sh` | Installs or updates the site inside the container. Safe to re-run. |
 | `deploy/deploy.sh` | One command on the Proxmox host to update the site from `main`. |
-| `deploy/update.sh` | Pulls `main` and re-runs the installer. |
+| `deploy/asra` | The `asra` command in the container: deploy, status, log, rollback. |
+| `deploy/update.sh` | The same as `asra deploy`, for older instructions. |
 | `deploy/Caddyfile` | Caddy template: static files, security headers, `/api/*` to the API. |
 | `deploy/asra.service` | systemd unit for the API, sandboxed, running as the `asra` user. |
 | `tests/` | Tests for the API and admin commands. |
@@ -156,12 +157,29 @@ stored, and Caddy keeps no access log.
 Inside the container, as root:
 
 ```sh
-asra-deploy
+asra deploy              # update from main and reinstall
+DRY_RUN=1 asra deploy    # show what would change, touch nothing
+asra deploy <tag|commit> # deploy something other than main
+asra status              # deployed version, services, health and count
+asra log                 # the signature service's last 50 log lines
+asra rollback            # back to the version before the last deploy
+asra help
 ```
 
-From the Proxmox host: `pct exec <CTID> -- asra-deploy`. Settings
-from the first install are kept in `/etc/asra/install.conf`. To change one, pass
-it with `_OVERRIDE` added, for example `SITE_ADDRESS_OVERRIDE=:80`.
+From the Proxmox host: `pct exec <CTID> -- asra deploy`. `asra-deploy` still
+works and does the same.
+
+A deploy takes a lock so two can't run at once. It refuses to run over local
+changes in `/opt/asra`, lists the commits it brings in, then re-runs
+`deploy/install.sh`. It never touches the database or its logins. The deployed
+version is recorded in `/etc/asra/deployed` and the one before it in
+`/etc/asra/deployed.prev`. If the install step fails, `asra rollback` returns to
+the previous version. `/usr/local/bin/asra` is a link into the checkout, so each
+deploy also updates the command itself.
+
+Settings from the first install are kept in `/etc/asra/install.conf`. To change
+one, pass it with `_OVERRIDE` added, for example
+`SITE_ADDRESS_OVERRIDE=:80 asra deploy`.
 
 ## Organiser commands
 

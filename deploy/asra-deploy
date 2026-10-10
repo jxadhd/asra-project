@@ -1,8 +1,6 @@
 #!/bin/sh
 # Updates the Asra site from main. Run as root inside the container:
 #   asra-deploy
-# It pulls main into /opt/asra and re-runs the installer. It never touches the
-# database or its logins.
-[ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
-export LC_ALL=C.UTF-8 LANG=C.UTF-8
-exec /opt/asra/deploy/update.sh "$@"
+# The same as "asra deploy"; see "asra help". It never touches the database or
+# its logins.
+exec /opt/asra/deploy/asra deploy "$@"

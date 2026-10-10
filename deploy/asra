@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# asra: Asra site commands. Run as root inside the container. "asra help" lists them.
+#
+#   asra deploy [ref]      update from GitHub (default: main) and reinstall
+#   DRY_RUN=1 asra deploy  show what would change, touch nothing
+#   asra status            deployed version, services and health
+#   asra log [N]           last N lines of the signature service log (default 50)
+#   asra rollback          go back to the version before the last deploy
+#   asra admin ...         the signature admin tool (export, delete, ...)
+#
+# /usr/local/bin/asra links here, so every deploy also updates this command.
+# A deploy never touches the database or its logins.
+set -euo pipefail
+
+APP_DIR="${APP_DIR:-/opt/asra}"
+STATE_DIR="${STATE_DIR:-/etc/asra}"
+DEPLOYED="$STATE_DIR/deployed"
+PREVIOUS="$STATE_DIR/deployed.prev"
+LOCK="${LOCK:-/run/lock/asra-deploy.lock}"
+DRY_RUN="${DRY_RUN:-0}"
+export LC_ALL=C.UTF-8 LANG=C.UTF-8
+
+say() { printf '\n==> %s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+need_root() { [[ "$(id -u)" -eq 0 ]] || die "run as root"; }
+git_() { git -C "$APP_DIR" "$@"; }
+version() { if [[ -r "$1" ]]; then cat "$1"; else echo "unknown"; fi; }
+
+# Checks out a commit and reinstalls. Keeps the branch "main" when deploying main.
+install_rev() {  # install_rev <sha> <label>
+  local sha="$1" label="$2"
+  if [[ "$label" == "main" ]]; then
+    git_ checkout -q -B main "$sha"
+  else
+    git_ checkout -q --detach "$sha"
+  fi
+  if ! "$APP_DIR/deploy/install.sh"; then
+    echo >&2
+    echo "The install step failed on $(git_ rev-parse --short HEAD). Run 'asra rollback' to go back to $(git_ rev-parse --short "$(cut -d' ' -f1 "$PREVIOUS" 2>/dev/null)" 2>/dev/null || echo "the previous version")." >&2
+    exit 1
+  fi
+}
+
+deploy() {
+  need_root
+  local ref="${1:-main}" before after
+  [[ "$ref" =~ ^[A-Za-z0-9._/-]+$ ]] || die "not a branch, tag or commit: '$ref'"
+  exec 9>"$LOCK"
+  flock -n 9 || die "another deploy is already running"
+  [[ -d "$APP_DIR/.git" ]] || die "no git checkout at $APP_DIR"
+  git_ diff --quiet && git_ diff --cached --quiet \
+    || die "uncommitted changes in $APP_DIR; refusing to deploy over them"
+
+  say "Fetching $ref"
+  before="$(git_ rev-parse HEAD)"
+  git_ fetch --quiet --prune origin "$ref"
+  after="$(git_ rev-parse FETCH_HEAD)"
+  if [[ "$before" == "$after" ]]; then
+    echo "Already at $(git_ log -1 --format='%h %s' "$after")"
+  else
+    git_ log --oneline "$before..$after" || git_ log -1 --oneline "$after"
+    git_ diff --stat "$before" "$after" | tail -n 1
+  fi
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo; echo "Dry run: nothing changed."; return 0
+  fi
+
+  # Recorded first, so "asra rollback" works even if this install fails.
+  if [[ "$before" != "$after" ]]; then echo "$before" > "$PREVIOUS"; fi
+  say "Installing $(git_ rev-parse --short "$after")"
+  install_rev "$after" "$ref"
+  printf '%s %s %s\n' "$(git_ rev-parse --short HEAD)" "$ref" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DEPLOYED"
+  say "Deployed $(version "$DEPLOYED")"
+}
+
+rollback() {
+  need_root
+  local prev
+  [[ -s "$PREVIOUS" ]] || die "no previous version recorded yet"
+  prev="$(cut -d' ' -f1 "$PREVIOUS")"
+  exec 9>"$LOCK"
+  flock -n 9 || die "a deploy is running"
+  git_ cat-file -e "$prev^{commit}" 2>/dev/null || die "commit $prev is not in $APP_DIR"
+  say "Rolling back to $(git_ log -1 --format='%h %s' "$prev")"
+  local current; current="$(git_ rev-parse HEAD)"
+  install_rev "$prev" rollback
+  echo "$current" > "$PREVIOUS"
+  printf '%s rollback %s\n' "$(git_ rev-parse --short HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DEPLOYED"
+  say "Rolled back. 'asra rollback' again returns to $(git_ rev-parse --short "$current"); 'asra deploy' goes to the latest main."
+}
+
+status() {
+  echo "Deployed:  $(version "$DEPLOYED")"
+  echo "Checkout:  $(git_ log -1 --format='%h %s (%cr)' 2>/dev/null || echo unknown)"
+  echo "Previous:  $(version "$PREVIOUS")"
+  echo "Service:   asra $(systemctl is-active asra 2>/dev/null || true), caddy $(systemctl is-active caddy 2>/dev/null || true)"
+  printf 'Health:    '; curl -fsS --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null || echo "no answer"; echo
+  printf 'Count:     '; curl -fsS --max-time 5 http://127.0.0.1:8080/api/count 2>/dev/null || echo "no answer"; echo
+}
+
+usage() { sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$(readlink -f "${BASH_SOURCE[0]}")"; }
+
+# Everything runs from main(), which bash reads in full before it starts, so a
+# deploy that replaces this file mid-run is safe.
+main() {
+  local cmd="${1:-help}"
+  [[ $# -gt 0 ]] && shift
+  case "$cmd" in
+    deploy) deploy "$@" ;;
+    rollback) rollback ;;
+    status) status ;;
+    log) journalctl -u asra -n "${1:-50}" --no-pager ;;
+    admin) exec /usr/local/bin/asra-admin "$@" ;;
+    help | -h | --help) usage ;;
+    *) echo "asra: unknown command '$cmd'" >&2; usage >&2; exit 2 ;;
+  esac
+}
+main "$@"
+exit
