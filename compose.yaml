@@ -1,0 +1,50 @@
+# The Asra site as two containers: web (Caddy and the page) and api (signatures).
+# Signatures live in Postgres elsewhere; nothing here stores them.
+# deploy/install.sh runs this with:
+#   docker compose --project-directory /opt/asra --env-file /etc/asra/compose.env up -d --build
+name: asra
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: asra-api
+    restart: unless-stopped
+    env_file: /etc/asra/asra.env
+    environment:
+      ASRA_HOST: 0.0.0.0
+      ASRA_PORT: "8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: &logging
+      driver: json-file
+      options: {max-size: 1m, max-file: "3"}
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    image: asra-web
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-127.0.0.1/32}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:

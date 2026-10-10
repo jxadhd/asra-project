@@ -23,8 +23,7 @@ petition.
 | `deploy/deploy.sh` | One command on the Proxmox host to update the site from `main`. |
 | `deploy/asra` | The `asra` command in the container: deploy, status, log, rollback. |
 | `deploy/update.sh` | The same as `asra deploy`, for older instructions. |
-| `deploy/Caddyfile` | Caddy template: static files, security headers, `/api/*` to the API. |
-| `deploy/asra.service` | systemd unit for the API, sandboxed, running as the `asra` user. |
+| `compose.yaml`, `docker/` | The two containers: `web` (Caddy with the page, security headers, `/api/*` passed on) and `api` (the signature service). |
 | `tests/` | Tests for the API and admin commands. |
 
 ### The API
@@ -51,9 +50,9 @@ ASRA_DATABASE_URL=postgresql://asra_app:...@localhost/asra \
   python3 server/asra_server.py                   # API on 127.0.0.1:8080
 ```
 
-To serve the page and the API together, install Caddy and run it with a copy of
-`deploy/Caddyfile` where `__GLOBAL_OPTIONS__` is removed, `__SITE_ADDRESS__` is
-`:8099` and `root` points at your `site/` folder.
+To run the page and the API together as they run in production, put the
+`asra_app` connection string in `/etc/asra/asra.env` as `ASRA_DATABASE_URL=...`
+and run `docker compose up --build`. The site is then on port 80.
 
 ## Deploy on Proxmox
 
@@ -66,7 +65,10 @@ curl -fsSL https://raw.githubusercontent.com/jxadhd/asra-project/main/deploy/dep
 
 First-time setup is below.
 
-Signatures live in Postgres, not in the web container. The web container uses
+The site runs as two Docker containers inside the web LXC container, managed
+with Docker Compose (`compose.yaml`): `web` is Caddy with the page, and `api` is
+the signature service. Both run read-only with no extra privileges. Signatures
+live in Postgres, not in the web container. The web container uses
 the `asra_app` login, which can add signatures and count them by country but
 can't read names or delete anything. Organiser commands use `asra_admin`.
 
@@ -93,11 +95,12 @@ backups.
 ### 2. The web container
 
 `deploy/create-lxc.sh` makes an unprivileged Debian container (newest Debian 13
-template, falling back to 12) with 1 core, 512 MB of memory and a 4 GB disk. It
+template, falling back to 12) with 1 core, 512 MB of memory and an 8 GB disk. It
 starts on boot, clones this repo to `/opt/asra`, copies in `/root/asra-db.env`
-and runs `install.sh`. That installs Caddy, creates the `asra` user, starts the
-API and checks that the page and the database both answer. The app login goes
-in `/etc/asra/asra.env` and the admin login in `/etc/asra/admin.env` (root only).
+and runs `install.sh`. That installs Docker, builds and starts the two
+containers, and checks that the page and the database both answer. The app
+login goes in `/etc/asra/asra.env` and the admin login in `/etc/asra/admin.env`
+(root only). The container has the `nesting` and `keyctl` features Docker needs.
 
 Run it as root in the Proxmox shell (web UI, then the node, then **Shell**):
 

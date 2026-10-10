@@ -4,7 +4,7 @@
 #   asra deploy [ref]      update from GitHub (default: main) and reinstall
 #   DRY_RUN=1 asra deploy  show what would change, touch nothing
 #   asra status            deployed version, services and health
-#   asra log [N]           last N lines of the signature service log (default 50)
+#   asra log [N]           last N lines of the containers' logs (default 50)
 #   asra rollback          go back to the version before the last deploy
 #   asra admin ...         the signature admin tool (export, delete, ...)
 #
@@ -24,6 +24,7 @@ say() { printf '\n==> %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 need_root() { [[ "$(id -u)" -eq 0 ]] || die "run as root"; }
 git_() { git -C "$APP_DIR" "$@"; }
+compose() { docker compose --project-directory "$APP_DIR" --env-file "$STATE_DIR/compose.env" "$@"; }
 version() { if [[ -r "$1" ]]; then cat "$1"; else echo "unknown"; fi; }
 
 # Checks out a commit and reinstalls. Keeps the branch "main" when deploying main.
@@ -94,9 +95,9 @@ status() {
   echo "Deployed:  $(version "$DEPLOYED")"
   echo "Checkout:  $(git_ log -1 --format='%h %s (%cr)' 2>/dev/null || echo unknown)"
   echo "Previous:  $(version "$PREVIOUS")"
-  echo "Service:   asra $(systemctl is-active asra 2>/dev/null || true), caddy $(systemctl is-active caddy 2>/dev/null || true)"
-  printf 'Health:    '; curl -fsS --max-time 5 http://127.0.0.1:8080/api/health 2>/dev/null || echo "no answer"; echo
-  printf 'Count:     '; curl -fsS --max-time 5 http://127.0.0.1:8080/api/count 2>/dev/null || echo "no answer"; echo
+  echo "Containers:"; compose ps --format '  {{.Service}}  {{.Status}}' 2>/dev/null || echo "  none"
+  printf 'Health:    '; curl -fsS --max-time 5 http://127.0.0.1/api/health 2>/dev/null || echo "no answer"; echo
+  printf 'Count:     '; curl -fsS --max-time 5 http://127.0.0.1/api/count 2>/dev/null || echo "no answer"; echo
 }
 
 usage() { sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "$(readlink -f "${BASH_SOURCE[0]}")"; }
@@ -110,7 +111,7 @@ main() {
     deploy) deploy "$@" ;;
     rollback) rollback ;;
     status) status ;;
-    log) journalctl -u asra -n "${1:-50}" --no-pager ;;
+    log) compose logs --tail "${1:-50}" --no-color ;;
     admin) exec /usr/local/bin/asra-admin "$@" ;;
     help | -h | --help) usage ;;
     *) echo "asra: unknown command '$cmd'" >&2; usage >&2; exit 2 ;;

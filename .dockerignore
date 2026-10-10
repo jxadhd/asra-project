@@ -1,0 +1,7 @@
+.git
+.github
+.githooks
+tests
+**/__pycache__
+*.env
+.env*

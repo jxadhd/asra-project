@@ -1,8 +1,12 @@
-# Template. deploy/install.sh fills in the placeholders and writes /etc/caddy/Caddyfile.
-# Edit this file in the repo, not the copy in /etc/caddy.
-__GLOBAL_OPTIONS__
-__SITE_ADDRESS__ {
-	root * /opt/asra/site
+# SITE_ADDRESS and TRUSTED_PROXY come from /etc/asra/compose.env (see compose.yaml).
+{
+	servers {
+		trusted_proxies static {$TRUSTED_PROXY:127.0.0.1/32}
+	}
+}
+
+{$SITE_ADDRESS::80} {
+	root * /srv
 	encode zstd gzip
 
 	header {
@@ -17,7 +21,7 @@ __SITE_ADDRESS__ {
 	# No access log: the site does not record visitors' IP addresses.
 
 	handle /api/* {
-		reverse_proxy 127.0.0.1:8080
+		reverse_proxy api:8080
 	}
 
 	handle {

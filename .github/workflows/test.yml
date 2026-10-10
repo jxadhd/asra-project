@@ -36,9 +36,7 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Shell scripts
         run: shellcheck deploy/*.sh deploy/postgres/*.sh deploy/asra deploy/asra-admin deploy/asra-deploy .github/scripts/*.sh
-      - name: Caddy config
+      - name: Docker images (the web image validates its Caddyfile while building)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq caddy
-          sed -e 's/__GLOBAL_OPTIONS__//' -e 's/__SITE_ADDRESS__/:80/' deploy/Caddyfile > /tmp/Caddyfile
-          caddy validate --config /tmp/Caddyfile --adapter caddyfile
+          sudo mkdir -p /etc/asra && sudo touch /etc/asra/asra.env
+          docker compose build

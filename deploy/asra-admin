@@ -1,12 +1,12 @@
 #!/bin/sh
 # Organiser commands for the signature database. Run as root: the asra_admin
-# login in /etc/asra/admin.env is readable by root only, and the command itself
-# runs as "nobody". Usage: asra-admin --help
+# login in /etc/asra/admin.env is readable by root only. The command runs in a
+# throwaway copy of the api container. Usage: asra-admin --help
 [ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
 [ -r /etc/asra/admin.env ] || { echo "Missing /etc/asra/admin.env. See README.md." >&2; exit 1; }
 set -a
 # shellcheck disable=SC1091
 . /etc/asra/admin.env
 set +a
-cd /
-exec runuser -u nobody -- /usr/bin/python3 /opt/asra/server/asra_admin.py "$@"
+exec docker compose --project-directory /opt/asra --env-file /etc/asra/compose.env \
+  run --rm --no-deps -T -e ASRA_ADMIN_DATABASE_URL api python /app/asra_admin.py "$@"

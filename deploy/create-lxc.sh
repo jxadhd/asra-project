@@ -13,7 +13,7 @@
 #   BRIDGE            network bridge (default: vmbr0)
 #   IPCONFIG          "ip=dhcp" (default) or "ip=192.168.1.50/24,gw=192.168.1.1"
 #   VLAN              VLAN tag, if the bridge needs one
-#   DISK_GB MEMORY_MB CORES   defaults: 4, 512, 1
+#   DISK_GB MEMORY_MB CORES   defaults: 8, 512, 1
 #   SITE_ADDRESS      passed to install.sh (default: ":80", see README)
 #   TRUSTED_PROXY     passed to install.sh (default: none)
 #   CLIENT_IP_HEADER  passed to install.sh (default: none; Cloudflare: CF-Connecting-IP)
@@ -29,7 +29,7 @@ STORAGE=${STORAGE:-local-lvm}
 TEMPLATE_STORAGE=${TEMPLATE_STORAGE:-local}
 BRIDGE=${BRIDGE:-vmbr0}
 IPCONFIG=${IPCONFIG:-ip=dhcp}
-DISK_GB=${DISK_GB:-4}
+DISK_GB=${DISK_GB:-8}
 MEMORY_MB=${MEMORY_MB:-512}
 CORES=${CORES:-1}
 SITE_ADDRESS=${SITE_ADDRESS:-:80}
@@ -69,7 +69,7 @@ pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" \
   --hostname "$CT_HOSTNAME" \
   --description "The Asra Project campaign site. Source: $REPO_URL" \
   --unprivileged 1 \
-  --features nesting=1 \
+  --features nesting=1,keyctl=1 \
   --cores "$CORES" \
   --memory "$MEMORY_MB" \
   --swap 256 \

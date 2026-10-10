@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Installs or updates the Asra site inside its container. Run as root from the
-# repo checkout at /opt/asra. Safe to run again; settings from the first run are
+# Installs or updates the Asra site inside its container, as two Docker
+# containers (see compose.yaml). Run as root from the repo checkout at /opt/asra. Safe to run again; settings from the first run are
 # kept in /etc/asra/install.conf.
 #
 #   SITE_ADDRESS   ":80" (default) serves plain HTTP for a reverse proxy in front.
@@ -34,7 +34,10 @@ esac
 export DEBIAN_FRONTEND=noninteractive
 echo "Installing packages"
 apt-get update -qq
-apt-get install -y -qq caddy python3 python3-psycopg2 git ca-certificates curl >/dev/null
+apt-get install -y -qq docker.io docker-compose python3 git ca-certificates curl >/dev/null
+docker compose version >/dev/null 2>&1 || {
+  echo "Docker Compose v2 ('docker compose') is not available after installing docker-compose." >&2; exit 1; }
+systemctl enable --now docker >/dev/null
 
 id asra >/dev/null 2>&1 || useradd --system --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin asra
 
@@ -88,49 +91,45 @@ if [ -f "$OLD_DB" ]; then
   fi
 fi
 
-echo "Configuring the signature service"
-install -m 0644 "$APP_DIR/deploy/asra.service" /etc/systemd/system/asra.service
+# Version 2 ran the API under systemd and Caddy from apt. Docker replaces both.
+if [ -f /etc/systemd/system/asra.service ]; then
+  echo "Removing the old systemd service"
+  systemctl disable --now asra.service >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/asra.service
+  systemctl daemon-reload
+fi
+if systemctl is-enabled caddy >/dev/null 2>&1; then
+  echo "Stopping the old Caddy service"
+  systemctl disable --now caddy >/dev/null 2>&1 || true
+fi
+
 install -m 0755 "$APP_DIR/deploy/asra-admin" /usr/local/bin/asra-admin
 install -m 0755 "$APP_DIR/deploy/asra-deploy" /usr/local/bin/asra-deploy
 # A link, not a copy, so each "asra deploy" also updates the asra command.
 ln -sfn "$APP_DIR/deploy/asra" /usr/local/bin/asra
-systemctl daemon-reload
-systemctl enable asra.service >/dev/null
-systemctl restart asra.service
 
-echo "Configuring Caddy for $SITE_ADDRESS"
-GLOBAL=""
-if [ -n "$TRUSTED_PROXY" ]; then
-  GLOBAL=$(printf '{\n\tservers {\n\t\ttrusted_proxies static %s\n\t}\n}' "$TRUSTED_PROXY")
-fi
-python3 - "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile.new "$SITE_ADDRESS" "$GLOBAL" <<'PY'
-import sys
-src, dest, address, global_options = sys.argv[1:5]
-text = open(src).read().replace("__GLOBAL_OPTIONS__", global_options).replace("__SITE_ADDRESS__", address)
-open(dest, "w").write(text)
-PY
-caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null
-mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
-systemctl enable caddy >/dev/null
-systemctl reload-or-restart caddy
+echo "Building and starting the containers for $SITE_ADDRESS"
+(umask 077; printf 'SITE_ADDRESS=%s\nTRUSTED_PROXY=%s\n' "$SITE_ADDRESS" "${TRUSTED_PROXY:-127.0.0.1/32}" > /etc/asra/compose.env)
+docker compose --project-directory "$APP_DIR" --env-file /etc/asra/compose.env up -d --build --remove-orphans --quiet-pull
+docker image prune -f >/dev/null
 
 echo "Checking"
+logs="docker compose --project-directory $APP_DIR logs --tail 50"
 status=000
-for _ in $(seq 1 20); do
-  status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/health || true)
-  [ "$status" != 000 ] && break
+for _ in $(seq 1 40); do
+  status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/api/health || true)
+  case "$status" in 200|503) break ;; esac
   sleep 0.5
 done
 case "$status" in
   200) ;;
-  503) echo "The signature service is running but can't reach the database. Check ASRA_DATABASE_URL in" >&2
-       echo "/etc/asra/asra.env and that this container can reach the database server. See: journalctl -u asra -n 50" >&2
+  503) echo "The site is running but can't reach the database. Check ASRA_DATABASE_URL in" >&2
+       echo "/etc/asra/asra.env and that this container can reach the database server. See: $logs api" >&2
        exit 1 ;;
-  *) echo "The signature service did not start. See: journalctl -u asra -n 50" >&2; exit 1 ;;
+  *) echo "The site did not start. See: $logs" >&2; exit 1 ;;
 esac
 if [ "$SITE_ADDRESS" = ":80" ]; then
   curl -fsS http://127.0.0.1/ | grep -q "The Asra Project" || {
-    echo "Caddy is not serving the site. See: journalctl -u caddy -n 50" >&2; exit 1; }
-  curl -fsS http://127.0.0.1/api/count >/dev/null
+    echo "The page is not being served. See: $logs web" >&2; exit 1; }
 fi
 echo "Done. Version $(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown) is live at $SITE_ADDRESS."
