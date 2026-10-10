@@ -91,6 +91,7 @@ fi
 echo "Configuring the signature service"
 install -m 0644 "$APP_DIR/deploy/asra.service" /etc/systemd/system/asra.service
 install -m 0755 "$APP_DIR/deploy/asra-admin" /usr/local/bin/asra-admin
+install -m 0755 "$APP_DIR/deploy/asra-deploy" /usr/local/bin/asra-deploy
 systemctl daemon-reload
 systemctl enable asra.service >/dev/null
 systemctl restart asra.service

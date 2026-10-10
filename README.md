@@ -156,10 +156,10 @@ stored, and Caddy keeps no access log.
 Inside the container, as root:
 
 ```sh
-/opt/asra/deploy/update.sh
+asra-deploy
 ```
 
-From the Proxmox host: `pct exec <CTID> -- /opt/asra/deploy/update.sh`. Settings
+From the Proxmox host: `pct exec <CTID> -- asra-deploy`. Settings
 from the first install are kept in `/etc/asra/install.conf`. To change one, pass
 it with `_OVERRIDE` added, for example `SITE_ADDRESS_OVERRIDE=:80`.
 

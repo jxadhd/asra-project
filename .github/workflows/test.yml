@@ -35,7 +35,7 @@ jobs:
       - name: Server and admin tests
         run: python -m unittest discover -s tests -v
       - name: Shell scripts
-        run: shellcheck deploy/*.sh deploy/postgres/*.sh deploy/asra-admin .github/scripts/*.sh
+        run: shellcheck deploy/*.sh deploy/postgres/*.sh deploy/asra-admin deploy/asra-deploy .github/scripts/*.sh
       - name: Caddy config
         run: |
           sudo apt-get update -qq
