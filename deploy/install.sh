@@ -120,6 +120,9 @@ install -m 0755 "$APP_DIR/deploy/asra-admin" /usr/local/bin/asra-admin
 install -m 0755 "$APP_DIR/deploy/asra-deploy" /usr/local/bin/asra-deploy
 # A link, not a copy, so each "asra deploy" also updates the asra command.
 ln -sfn "$APP_DIR/deploy/asra" /usr/local/bin/asra
+# "pct enter" starts a shell with PATH=/sbin:/bin:/usr/sbin:/usr/bin, so link
+# the commands there too.
+for cmd in asra asra-admin asra-deploy; do ln -sfn "/usr/local/bin/$cmd" "/usr/sbin/$cmd"; done
 
 echo "Building and starting the containers for $SITE_ADDRESS"
 (umask 077; printf 'SITE_ADDRESS=%s\nTRUSTED_PROXY=%s\n' "$SITE_ADDRESS" "${TRUSTED_PROXY:-127.0.0.1/32}" > /etc/asra/compose.env)
