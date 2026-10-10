@@ -32,6 +32,19 @@ case "$CLIENT_IP_HEADER" in
 esac
 
 export DEBIAN_FRONTEND=noninteractive
+# SSH from a New Zealand machine passes LANG=en_NZ.UTF-8 through "pct exec".
+# Generate that locale (and en_US for other visitors) so perl and apt stop
+# warning, and make C.UTF-8 the container's default.
+export LC_ALL=C.UTF-8 LANG=C.UTF-8
+if ! locale -a 2>/dev/null | grep -qix 'en_NZ.utf8'; then
+  echo "Setting up locales"
+  apt-get update -qq
+  apt-get install -y -qq locales >/dev/null
+  sed -i -E 's/^# *(en_NZ\.UTF-8 UTF-8|en_US\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+  locale-gen >/dev/null
+  update-locale LANG=C.UTF-8
+fi
+
 echo "Installing packages"
 apt-get update -qq
 apt-get install -y -qq docker.io docker-compose python3 git ca-certificates curl >/dev/null
