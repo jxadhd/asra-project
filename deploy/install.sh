@@ -145,7 +145,13 @@ case "$status" in
   *) echo "The site did not start. See: $logs" >&2; exit 1 ;;
 esac
 if [ "$SITE_ADDRESS" = ":80" ]; then
-  curl -fsS http://127.0.0.1/ | grep -q "The Asra Project" || {
-    echo "The page is not being served. See: $logs web" >&2; exit 1; }
+  # Read the whole page before searching it: "curl | grep -q" makes curl
+  # fail (error 23) when grep stops reading early, and pipefail turns that
+  # into a false alarm.
+  page=$(curl -fsS http://127.0.0.1/ || true)
+  case "$page" in
+    *"The Asra Project"*) ;;
+    *) echo "The page is not being served. See: $logs web" >&2; exit 1 ;;
+  esac
 fi
 echo "Done. Version $(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown) is live at $SITE_ADDRESS."
