@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Server and admin tests
+        run: python -m unittest discover -s tests -v
+      - name: Shell scripts
+        run: shellcheck deploy/*.sh deploy/asra-admin
+      - name: Caddy config
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq caddy
+          sed -e 's/__GLOBAL_OPTIONS__//' -e 's/__SITE_ADDRESS__/:80/' deploy/Caddyfile > /tmp/Caddyfile
+          caddy validate --config /tmp/Caddyfile --adapter caddyfile

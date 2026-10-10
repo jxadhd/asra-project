@@ -1,0 +1,27 @@
+# Template. deploy/install.sh fills in the placeholders and writes /etc/caddy/Caddyfile.
+# Edit this file in the repo, not the copy in /etc/caddy.
+__GLOBAL_OPTIONS__
+__SITE_ADDRESS__ {
+	root * /opt/asra/site
+	encode zstd gzip
+
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# No access log: the site does not record visitors' IP addresses.
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle {
+		header Cache-Control "public, max-age=300"
+		file_server
+	}
+}

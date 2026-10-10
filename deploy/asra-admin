@@ -1,0 +1,9 @@
+#!/bin/sh
+# Organiser commands for the signature database. Runs as the asra user so the
+# database files keep the right owner. Usage: asra-admin --help
+set -a
+# shellcheck disable=SC1091
+[ -r /etc/asra/asra.env ] && . /etc/asra/asra.env
+set +a
+cd /
+exec runuser -u asra -- /usr/bin/python3 /opt/asra/server/asra_admin.py "$@"
