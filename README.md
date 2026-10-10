@@ -20,7 +20,7 @@ petition.
 | `deploy/postgres/` | Database setup: `setup.sh` for a Postgres in Docker on Proxmox, `setup.sql` and `schema.sql` for any Postgres. |
 | `deploy/create-lxc.sh` | Creates a Debian container on a Proxmox VE host and installs everything. |
 | `deploy/install.sh` | Installs or updates the site inside the container. Safe to re-run. |
-| `deploy/deploy.sh` | One command on the Proxmox host: database setup the first time, then updates. |
+| `deploy/deploy.sh` | One command on the Proxmox host to update the site from `main`. |
 | `deploy/update.sh` | Pulls `main` and re-runs the installer. |
 | `deploy/Caddyfile` | Caddy template: static files, security headers, `/api/*` to the API. |
 | `deploy/asra.service` | systemd unit for the API, sandboxed, running as the `asra` user. |
@@ -56,15 +56,14 @@ To serve the page and the API together, install Caddy and run it with a copy of
 
 ## Deploy on Proxmox
 
-Once the web container exists, one command on the Proxmox host (as root) sets up
-the database the first time and updates the site every time after:
+To update the site from `main` once it is set up, run this on the Proxmox host
+as root. It never touches the database or its logins:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jxadhd/asra-project/main/deploy/deploy.sh | PG_ADMIN_DB=data bash
+curl -fsSL https://raw.githubusercontent.com/jxadhd/asra-project/main/deploy/deploy.sh | bash
 ```
 
-`PG_ADMIN_DB` names an existing database on the Postgres server to log in to;
-it is only used the first time. The steps it runs are described below.
+First-time setup is below.
 
 Signatures live in Postgres, not in the web container. The web container uses
 the `asra_app` login, which can add signatures and count them by country but
