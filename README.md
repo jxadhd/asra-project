@@ -206,7 +206,6 @@ published or passed on. Only totals and per-country counts are public.
 
 ## Before launch
 
-- [ ] Add a contact address for removal requests and new cells. The page currently
-      says "contact the organisers" without an address.
+- [x] Contact address for removal requests and new cells: asra.project@joshcross.co.nz.
 - [ ] Re-check the facts on the page after Israel's 11 October 2026 court deadline.
 - [ ] Have a native Arabic speaker check the name and its spelling.
