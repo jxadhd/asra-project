@@ -11,6 +11,8 @@
 # Settings (environment variables, all optional):
 #   DB_CT         Proxmox container running Postgres (default: the one named "database")
 #   PG_CONTAINER  Docker container name inside it (default: pgsql)
+#   PG_ADMIN_DB   existing database to log in to first (default: the container's
+#                 POSTGRES_DB, else its POSTGRES_USER, else postgres)
 #   DB_HOST       address the web container connects to (default: DB_CT's eth0 address)
 #   DB_PORT       port the web container connects to (default: the port Docker publishes)
 #   DB_NAME       default: asra
@@ -20,6 +22,7 @@ set -euo pipefail
 command -v pct >/dev/null || { echo "Run this on the Proxmox host." >&2; exit 1; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 PG_CONTAINER=${PG_CONTAINER:-pgsql}
+PG_ADMIN_DB=${PG_ADMIN_DB:-}
 DB_NAME=${DB_NAME:-asra}
 OUT=${OUT:-/root/asra-db.env}
 case "$DB_NAME" in *[!a-z0-9_]*|"") echo "DB_NAME may only use a-z, 0-9 and _." >&2; exit 1 ;; esac
@@ -54,7 +57,7 @@ echo "Setting up database \"$DB_NAME\" in $PG_CONTAINER (CT $DB_CT), reached at 
 r $HERE/schema.sql
 d
 }" "$HERE/setup.sql"
-} | in_ct docker exec -i "$PG_CONTAINER" sh -c 'exec psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"' >/dev/null
+} | in_ct docker exec -i -e ASRA_ADMIN_DB="$PG_ADMIN_DB" "$PG_CONTAINER" sh -c 'exec psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "${ASRA_ADMIN_DB:-${POSTGRES_DB:-${POSTGRES_USER:-postgres}}}"' >/dev/null
 
 umask 077
 cat > "$OUT" <<ENV
