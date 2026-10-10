@@ -13,6 +13,7 @@ petition.
 
 | Path | What it is |
 | --- | --- |
+| `petitions/` | Petition wording, ready to paste into Parliament's form. |
 | `site/` | The public page: `index.html`, `style.css`, `app.js`. No build step. |
 | `server/asra_server.py` | Signature API (Python standard library and psycopg2). |
 | `server/asra_admin.py` | Organiser commands: counts, CSV export, removal requests. |
