@@ -48,8 +48,9 @@ deploy() {
   exec 9>"$LOCK"
   flock -n 9 || die "another deploy is already running"
   [[ -d "$APP_DIR/.git" ]] || die "no git checkout at $APP_DIR"
-  git_ diff --quiet && git_ diff --cached --quiet \
-    || die "uncommitted changes in $APP_DIR; refusing to deploy over them"
+  if ! git_ diff --quiet || ! git_ diff --cached --quiet; then
+    die "uncommitted changes in $APP_DIR; refusing to deploy over them"
+  fi
 
   say "Fetching $ref"
   before="$(git_ rev-parse HEAD)"
