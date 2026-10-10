@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # asra: Asra site commands. Run as root inside the container. "asra help" lists them.
 #
-#   asra deploy [ref]      update from GitHub (default: main) and reinstall
+#   asra deploy [ref]      update from GitHub (default: main) and reinstall ("asra update" too)
 #   DRY_RUN=1 asra deploy  show what would change, touch nothing
 #   asra status            deployed version, services and health
 #   asra log [N]           last N lines of the containers' logs (default 50)
@@ -108,7 +108,7 @@ main() {
   local cmd="${1:-help}"
   [[ $# -gt 0 ]] && shift
   case "$cmd" in
-    deploy) deploy "$@" ;;
+    deploy | update) deploy "$@" ;;
     rollback) rollback ;;
     status) status ;;
     log) compose logs --tail "${1:-50}" --no-color ;;
