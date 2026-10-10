@@ -5,3 +5,11 @@ __pycache__/
 *.db-shm
 .env
 *.whl
+
+# Environment and secret files never belong in the repo. Only *.example is allowed.
+*.env
+.env*
+*.env.*
+!*.env.example
+*.pem
+*.key

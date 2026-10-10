@@ -1,0 +1,4 @@
+#!/bin/sh
+# Blocks commits that add env files or database passwords.
+# Enable once per clone: git config core.hooksPath .githooks
+exec bash .github/scripts/check-no-secrets.sh
