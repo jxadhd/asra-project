@@ -45,7 +45,8 @@ ADMIN_PASSWORD=${ADMIN_PASSWORD:-$(openssl rand -hex 24)}
 echo "Setting up database \"$DB_NAME\" in $PG_CONTAINER (CT $DB_CT), reached at $DB_HOST:$DB_PORT"
 # Passwords go in on stdin, so they never show in a process list. setup.sql's
 # "\ir schema.sql" is replaced by the file itself, since stdin has no directory.
-# $POSTGRES_USER is expanded inside the Docker container.
+# $POSTGRES_USER and $POSTGRES_DB (the image's own settings) expand inside the
+# Docker container, so psql connects to the database the container was made with.
 # shellcheck disable=SC2016
 {
   printf '\\set dbname %s\n\\set app_password %s\n\\set admin_password %s\n' "$DB_NAME" "$APP_PASSWORD" "$ADMIN_PASSWORD"
@@ -53,7 +54,7 @@ echo "Setting up database \"$DB_NAME\" in $PG_CONTAINER (CT $DB_CT), reached at 
 r $HERE/schema.sql
 d
 }" "$HERE/setup.sql"
-} | in_ct docker exec -i "$PG_CONTAINER" sh -c 'exec psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d postgres' >/dev/null
+} | in_ct docker exec -i "$PG_CONTAINER" sh -c 'exec psql -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"' >/dev/null
 
 umask 077
 cat > "$OUT" <<ENV
