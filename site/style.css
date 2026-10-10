@@ -36,9 +36,11 @@ p{margin:0;max-width:65ch}
 section{padding-block:56px;border-bottom:1px solid var(--rule);display:grid;gap:22px}
 .hero{padding-block:48px 56px;gap:28px}
 .lede{font-size:1.2rem;color:var(--muted);max-width:56ch}
+.counters{display:flex;flex-wrap:wrap;gap:24px 48px}
 .counter{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 20px}
 .count{font-family:var(--mono);font-weight:500;font-size:clamp(2.8rem,8vw,4.6rem);line-height:1;font-variant-numeric:tabular-nums;color:var(--accent)}
 .count-label{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);max-width:24ch;line-height:1.4;padding-bottom:6px}
+@media (max-width:560px){.counters{display:grid;grid-template-columns:1fr 1fr;gap:20px}.counter{flex-direction:column;align-items:flex-start;gap:8px}.count{font-size:2.4rem}.count-label{font-size:.72rem;padding-bottom:0}}
 .tally{height:22px;max-width:100%;background:repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 9px);opacity:.25;-webkit-mask:linear-gradient(90deg,#000 70%,transparent);mask:linear-gradient(90deg,#000 70%,transparent)}
 .cta{display:flex;flex-wrap:wrap;gap:12px}
 .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border:1.5px solid var(--ink);color:var(--ink);text-decoration:none;font-family:var(--mono);font-size:.82rem;text-transform:uppercase;letter-spacing:.08em;background:transparent;cursor:pointer}

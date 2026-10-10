@@ -23,13 +23,16 @@
 
   function $(id) { return document.getElementById(id); }
 
-  // Days since Red Cross visits stopped (7 October 2023).
+  // Days since each date in data-since: Red Cross visits stopped on 7 October
+  // 2023, and the Supreme Court ruled they must resume on 3 June 2026.
   function updateDays() {
-    var start = Date.UTC(2023, 9, 7);
     var now = new Date();
     var today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    var days = Math.floor((today - start) / 86400000);
-    if (days > 0) $('days').textContent = days.toLocaleString('en');
+    document.querySelectorAll('[data-since]').forEach(function (el) {
+      var d = el.getAttribute('data-since').split('-');
+      var days = Math.floor((today - Date.UTC(+d[0], d[1] - 1, +d[2])) / 86400000);
+      if (days > 0) el.textContent = days.toLocaleString('en');
+    });
   }
 
   function setupCopy() {
